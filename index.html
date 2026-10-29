@@ -102,12 +102,24 @@ function numberField(feed, n) {
   return feed['field'+n] !== null && feed['field'+n] !== '' && Number.isFinite(v) ? v : null;
 }
 function levelOf(feed) {
-  const low=numberField(feed,1), mid=numberField(feed,2), high=numberField(feed,3);
-  if (low === null && mid === null && high === null) return {name:'Unknown',pct:10};
-  if (low === 1) return {name:'LOW',pct:18};
-  if (high === 1) return {name:'HIGH',pct:92};
-  if (mid === 1) return {name:'MEDIUM',pct:55};
-  return {name:'Unknown',pct:10};
+  const low = numberField(feed, 1);
+  const mid = numberField(feed, 2);
+  const high = numberField(feed, 3);
+
+  // If all three fields are missing, the record cannot identify a level.
+  if (low === null && mid === null && high === null) {
+    return {name: 'Unknown', pct: 10};
+  }
+
+  // Prefer HIGH, then MEDIUM, then LOW if a record contains conflicting 1s.
+  // Expected normal combinations:
+  // LOW = 1,0,0 | MEDIUM = 0,1,0 | HIGH = 0,0,1
+  if (high === 1) return {name: 'HIGH', pct: 92};
+  if (mid === 1) return {name: 'MEDIUM', pct: 55};
+  if (low === 1) return {name: 'LOW', pct: 18};
+
+  // All fields are present but zero: don't incorrectly label this "Empty".
+  return {name: 'UNKNOWN', pct: 10};
 }
 function filteredFeeds() {
   const period=$('period').value;
@@ -125,7 +137,7 @@ function updateDashboard() {
   const latest=feeds[feeds.length-1], level=levelOf(latest);
   $('currentLevel').textContent=level.name;
   $('levelName').textContent=level.name;
-  $('levelDescription').textContent = level.name==='Unknown' ? 'Latest record does not contain a recognized level.' : `Water level based on the latest float-switch record.`;
+  $('levelDescription').textContent = level.name==='Unknown' ? 'Latest ThingSpeak record has no level field set to 1. Check the ESP8266 field values.' : `Water level based on the latest float-switch record.`;
   $('water').style.height=level.pct+'%';
   $('updatedAt').textContent='Last update: '+fmtDate(latest.created_at);
   const motor=numberField(latest,4);
