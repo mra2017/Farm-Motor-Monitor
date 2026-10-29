@@ -106,20 +106,25 @@ function levelOf(feed) {
   const mid = numberField(feed, 2);
   const high = numberField(feed, 3);
 
-  // If all three fields are missing, the record cannot identify a level.
+  // Missing level fields: we cannot determine the tank state.
   if (low === null && mid === null && high === null) {
-    return {name: 'Unknown', pct: 10};
+    return {name: 'UNKNOWN', pct: 10, error: false};
   }
 
-  // Prefer HIGH, then MEDIUM, then LOW if a record contains conflicting 1s.
+  // A high switch grounded while the low switch is open is contradictory.
+  // Field 1 = LOW reached; Field 3 = HIGH reached.
+  if (low === 1 && high === 1) {
+    return {name: 'LEVEL SENSOR ERROR', pct: 10, error: true};
+  }
+
   // Expected normal combinations:
   // LOW = 1,0,0 | MEDIUM = 0,1,0 | HIGH = 0,0,1
-  if (high === 1) return {name: 'HIGH', pct: 92};
-  if (mid === 1) return {name: 'MEDIUM', pct: 55};
-  if (low === 1) return {name: 'LOW', pct: 18};
+  if (high === 1) return {name: 'HIGH', pct: 92, error: false};
+  if (mid === 1) return {name: 'MEDIUM', pct: 55, error: false};
+  if (low === 1) return {name: 'LOW', pct: 18, error: false};
 
-  // All fields are present but zero: don't incorrectly label this "Empty".
-  return {name: 'UNKNOWN', pct: 10};
+  // All level fields are present but zero.
+  return {name: 'UNKNOWN', pct: 10, error: false};
 }
 function filteredFeeds() {
   const period=$('period').value;
@@ -137,7 +142,12 @@ function updateDashboard() {
   const latest=feeds[feeds.length-1], level=levelOf(latest);
   $('currentLevel').textContent=level.name;
   $('levelName').textContent=level.name;
-  $('levelDescription').textContent = level.name==='Unknown' ? 'Latest ThingSpeak record has no level field set to 1. Check the ESP8266 field values.' : `Water level based on the latest float-switch record.`;
+  $('levelName').style.color = level.error ? '#b91c1c' : (level.name==='UNKNOWN' ? '#b45309' : 'var(--teal)');
+  $('levelDescription').textContent = level.error
+    ? 'Contradictory switch states: LOW and HIGH both reported reached. Check D6, D7, wiring, and firmware.'
+    : (level.name==='UNKNOWN'
+       ? 'Latest ThingSpeak record has no level field set to 1. Check the ESP8266 field values.'
+       : 'Water level based on the latest float-switch record.');
   $('water').style.height=level.pct+'%';
   $('updatedAt').textContent='Last update: '+fmtDate(latest.created_at);
   const motor=numberField(latest,4);
