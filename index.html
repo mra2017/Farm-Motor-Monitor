@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tank monitor</title>
+<style>
+:root{--bg:#f2f6f8;--card:#fff;--ink:#12303f;--mute:#5d7684;--line:#d5e0e6;--water:#2a79b8;--ok:#1f7a5a;--warn:#b36b00;--bad:#b23a3a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1c24;--card:#172833;--ink:#e6f0f5;--mute:#93aab7;--line:#2a4050;--water:#4a9ad6;--ok:#4fc79b;--warn:#e0a03c;--bad:#e77b7b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px;max-width:640px;margin-inline:auto}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+h1{font-size:20px;font-weight:600;margin:0}
+.conn{font-size:14px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mute)}.dot.on{background:var(--ok)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.tank{display:flex;gap:16px;align-items:center}.tank svg{width:150px;flex:none}
+.big{font-size:34px;font-weight:600;line-height:1.1}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.mute{color:var(--mute);font-size:14px}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}.row:first-of-type{border-top:0}
+.badge{font-weight:600}
+label{display:block;font-size:14px;color:var(--mute);margin-top:10px}
+input{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+button{margin-top:12px;margin-right:8px;padding:10px 16px;border:1px solid var(--water);border-radius:8px;background:var(--water);color:#fff;font:inherit;cursor:pointer}
+button.alt{background:transparent;color:var(--water)}
+.seg{display:flex;gap:8px;margin:8px 0}.seg button{margin:0;padding:10px 4px;flex:1;font-size:15px;background:transparent;color:var(--water)}
+.tbl{max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+.tbl table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.tbl th{position:sticky;top:0;background:var(--card);text-align:left;padding:8px 6px;border-bottom:2px solid var(--line);color:var(--mute);font-weight:600}
+.tbl td{padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl .num{text-align:right}.tbl .tot td{font-weight:600;border-bottom:0}
+.seg button[aria-pressed=true]{background:var(--water);color:#fff}
+.chartbox{display:flex;margin-top:8px}.scroll{overflow-x:auto;flex:1}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+summary{cursor:pointer;font-weight:600}
+.farm img{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:8px;margin-bottom:12px}
+.farmrow{display:flex;align-items:center;gap:10px}.farmrow>div{flex:1;min-width:0}
+.locname{font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.farmrow button{margin:0;padding:6px 12px}.farmrow a{color:var(--water);font-size:14px}
+.empty{padding:24px 0;text-align:center;color:var(--mute)}
+</style>
+</head>
+<body>
+<section class="card farm">
+  <img id="farmimg" alt="Farm photo" style="display:none">
+  <div class="farmrow">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--water)" stroke-width="2" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    <div><div class="mute">Farm location</div><div id="farmloc" class="mute">Farm location not set</div></div>
+    <a id="maplink" href="#" target="_blank" rel="noopener" style="display:none">Map</a>
+    <button class="alt" id="editfarm">Edit</button>
+  </div>
+</section>
+
+<header><h1>Tank monitor</h1><div class="conn"><span class="dot" id="dot"></span><span id="status">Not connected</span></div></header>
+
+<section class="card tank" aria-live="polite">
+  <svg viewBox="0 0 150 200" role="img" aria-label="Water level gauge">
+    <rect x="10" y="10" width="80" height="180" rx="8" fill="none" stroke="var(--mute)" stroke-width="2"/>
+    <rect id="water" x="12" y="188" width="76" height="0" rx="6" fill="var(--water)" opacity="0.8"/>
+    <g id="floats"></g>
+  </svg>
+  <div><div class="mute">Water level</div><div class="big" id="level">--</div><div class="mute" id="reported">Waiting for data</div></div>
+</section>
+
+<section class="card">
+  <div class="row"><span>Motor</span><span class="badge" id="motor">--</span></div>
+  <div class="row"><span>Last run</span><span id="lastrun">--</span></div>
+</section>
+
+<section class="card">
+  <strong>Motor ON time</strong>
+  <div class="seg" id="rangeseg" role="group" aria-label="View">
+    <button data-r="1" aria-pressed="true">Daily</button><button data-r="7" aria-pressed="false">Weekly</button><button data-r="30" aria-pressed="false">Monthly</button><button data-r="0" aria-pressed="false">Summary</button>
+  </div>
+  <div class="seg" id="sumseg" role="group" aria-label="Summary period" style="display:none"><button data-r="m" aria-pressed="true">Monthly</button><button data-r="y" aria-pressed="false">Yearly</button></div>
+  <label for="endday">Date (week, month and summary views use the week, month or year containing it)</label>
+  <input id="endday" type="date">
+  <div class="mute" id="rangeinfo" style="margin-top:6px"></div>
+  <svg id="chart" viewBox="0 0 360 282" style="width:100%;height:auto" role="img" aria-label="Motor ON duration chart"></svg>
+  <div class="tbl" id="tablebox" style="display:none"></div>
+  <div class="mute" id="chartnote">Height = minutes the motor was ON. Times when the motor was OFF are not drawn. Weekly view lists the first two runs of each day.</div>
+</section>
+
+<details class="card" id="settings">
+  <summary>Settings</summary>
+  <label for="loc">Farm location (name or address)</label>
+  <input id="loc" placeholder="e.g. Green Valley Farm, village, district" autocomplete="off">
+  <label for="photo">Farm photo (one image)</label>
+  <input id="photo" type="file" accept="image/*">
+  <button class="alt" id="rmphoto" style="display:none">Remove photo</button>
+  <div class="mute" id="photonote"></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:14px 0 0">
+  <label for="channel">ThingSpeak Channel ID</label><input id="channel" inputmode="numeric" placeholder="e.g. 1234567" autocomplete="off">
+  <label for="readkey">ThingSpeak Read API Key (leave blank for a public channel)</label><input id="readkey" autocomplete="off" placeholder="Read API key, not Write API key">
+  <label for="poll">Refresh interval (seconds; minimum 15 on free ThingSpeak)</label><input id="poll" type="number" min="15" max="300" value="20">
+  <button id="go">Connect to ThingSpeak</button><button class="alt" id="demo">Show demo data</button>
+</details>
+
+
+<script>
+const $ = id => document.getElementById(id);
+const MARK = [["Low",24],["Med",58],["High",92]];
+const LV = {EMPTY:[4,"Empty","bad"],LOW:[24,"Low","warn"],MEDIUM:[58,"Medium","ok"],FULL:[92,"Full","ok"],FAULT:[0,"Sensor fault","bad"]};
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let hist = {}, range = 1, sumMode = "m", demoMode = false, pollTimer = null, lastHistoryFetch = 0;
+
+/* ---------- storage ---------- */
+function loadHist(){ try { hist = JSON.parse(localStorage.getItem("tankhist") || "{}"); } catch (e) { hist = {}; } }
+function saveHist(){ if (demoMode) return; try { localStorage.setItem("tankhist", JSON.stringify(hist)); } catch (e) {} }
+function pad(n){ return String(n).padStart(2, "0"); }
+function iso(y, m, d){ return y + "-" + pad(m) + "-" + pad(d); }
+function fmtDate(t){ return iso(t.getFullYear(), t.getMonth() + 1, t.getDate()); }
+function addDays(s, n){ const t = new Date(s + "T00:00:00"); t.setDate(t.getDate() + n); return fmtDate(t); }
+function addRun(date, s, e){
+  const a = hist[date] = hist[date] || [];
+  if (!a.some(r => r[0] === s && r[1] === e)) a.push([s, e]);
+}
+/* d = "yy-mm-dd", r = "DD:HHMM-HHMM,..." ; returns the last run text */
+function ingest(d, r){
+  const p = d.split("-").map(Number), y = 2000 + p[0], m = p[1], dd = p[2];
+  let last = "";
+  for (const item of r.split(",")) {
+    const q = /^(\d\d):(\d\d)(\d\d)-(\d\d)(\d\d)$/.exec(item.trim());
+    if (!q) continue;
+    let ry = y, rm = m; const rd = +q[1];
+    if (rd > dd) { rm = m - 1; if (rm === 0) { rm = 12; ry = y - 1; } }
+    const date = iso(ry, rm, rd), s = +q[2] * 60 + +q[3], e = +q[4] * 60 + +q[5];
+    if (e > s) addRun(date, s, e);
+    else if (e < s) { addRun(date, s, 1440); addRun(addDays(date, 1), 0, e); }
+    last = rd + " " + MON[rm - 1] + " " + q[2] + ":" + q[3] + " to " + q[4] + ":" + q[5];
+  }
+  saveHist();
+  return last;
+}
+
+/* ---------- charts: daily, weekly, monthly ---------- */
+const DN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const W = 360, H = 282, L = 42, R = 8, T = 18, B = 84;
+const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+const sum = day => (hist[day] || []).reduce((a, r) => a + (r[1] - r[0]), 0);
+const nice = v => Math.max(30, Math.ceil(v * 1.45 / 30) * 30);
+const yv = (v, mx) => T + (1 - v / mx) * (H - T - B);
+const T2 = (x, y, s, a = "middle", sz = 9, f = "var(--ink)", w = 400) => `<text x="${x}" y="${y}" text-anchor="${a}" font-size="${sz}" font-weight="${w}" fill="${f}">${s}</text>`;
+const bar = (x, w, v, mx, tip = "") => { const y = yv(v, mx); return `<rect x="${x}" y="${y}" width="${Math.max(w, 2)}" height="${yv(0, mx) - y}" rx="2" fill="var(--water)"><title>${tip}</title></rect>`; };
+function frame(mx){
+  let g = "";
+  for (let i = 0; i <= 4; i++) {
+    const y = T + (1 - i / 4) * (H - T - B);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="var(--line)"/>` + T2(L - 5, y + 3, Math.round(mx * i / 4), "end", 10, "var(--mute)");
+  }
+  const my = T + (H - T - B) / 2;
+  return g + `<text x="10" y="${my}" font-size="10" fill="var(--mute)" text-anchor="middle" transform="rotate(-90 10 ${my})">Motor ON (minutes)</text>`;
+}
+function dayChart(day){
+  const runs = (hist[day] || []).slice().sort((a, b) => a[0] - b[0]);
+  $("rangeinfo").textContent = day + (runs.length ? ": total " + sum(day) + " min" : ": motor did not run");
+  const title = T2((L + W - R) / 2, H - 3, "Time of day, " + day, "middle", 10, "var(--mute)");
+  if (!runs.length) return frame(30) + T2(W / 2, T + 80, "No motor run on this day", "middle", 12, "var(--mute)") + title;
+  const lo = Math.max(0, Math.floor(runs[0][0] / 60) * 60 - 60);
+  const hi = Math.min(1440, Math.max(lo + 180, Math.ceil(Math.max(...runs.map(r => r[1])) / 60) * 60 + 60));
+  const xs = m => L + (m - lo) / (hi - lo) * (W - L - R), mx = nice(Math.max(...runs.map(r => r[1] - r[0]))), st = hi - lo <= 240 ? 30 : 60;
+  let g = frame(mx);
+  for (let m = lo; m <= hi; m += st) g += T2(xs(m), H - B + 12, hm(m), "middle", 9, "var(--mute)");
+  runs.forEach((r, i) => {
+    const d = r[1] - r[0], x = xs(r[0]), w = xs(r[1]) - x, row = (i % 2) * 22;
+    g += bar(x, w, d, mx, hm(r[0]) + " to " + hm(r[1]) + ", " + d + " min") + T2(x + w / 2, yv(d, mx) - 4, d + " min", "middle", 10);
+    g += T2(x, H - B + 26 + row, "ON " + hm(r[0]), "middle", 9, "var(--ink)", 600) + T2(xs(r[1]), H - B + 37 + row, "OFF " + hm(r[1]), "middle", 9, "var(--ink)", 600);
+  });
+  return g + title;
+}
+function weekChart(day){
+  const dow = (new Date(day + "T00:00:00").getDay() + 6) % 7, mon = addDays(day, -dow), days = DN.map((_, i) => addDays(mon, i));
+  const tot = days.map(sum), mx = nice(Math.max(0, ...tot)), bw = (W - L - R) / 7;
+  const a = days[0].split("-"), b = days[6].split("-");
+  $("rangeinfo").textContent = "Week total: " + tot.reduce((x, y) => x + y, 0) + " min";
+  let g = frame(mx);
+  days.forEach((d, i) => {
+    const cx = L + bw * (i + .5), p = d.split("-");
+    g += T2(cx, H - B + 12, DN[i], "middle", 10) + T2(cx, H - B + 23, +p[2] + " " + MON[p[1] - 1], "middle", 8, "var(--mute)");
+    const runs = (hist[d] || []).slice().sort((x, y) => x[0] - y[0]);
+    if (!runs.length) return;
+    g += bar(cx - bw * .3, bw * .6, tot[i], mx, d + ": " + tot[i] + " min") + T2(cx, yv(tot[i], mx) - 4, tot[i] + " min", "middle", 9);
+    runs.slice(0, 2).forEach((r, j) => { g += T2(cx, H - B + 35 + j * 20, hm(r[0]), "middle", 8, "var(--ink)", 600) + T2(cx, H - B + 44 + j * 20, "to " + hm(r[1]), "middle", 8, "var(--ink)", 600); });
+  });
+  return g + T2((L + W - R) / 2, H - 3, "Mon " + +a[2] + " " + MON[a[1] - 1] + " to Sun " + +b[2] + " " + MON[b[1] - 1] + " " + b[0], "middle", 10, "var(--mute)");
+}
+function monthChart(day){
+  const p = day.split("-"), y = +p[0], m = +p[1], n = new Date(y, m, 0).getDate();
+  const days = [...Array(n)].map((_, i) => iso(y, m, i + 1)), tot = days.map(sum), mx = nice(Math.max(0, ...tot)), bw = (W - L - R) / n;
+  $("rangeinfo").textContent = MON[m - 1] + " " + y + " total: " + tot.reduce((x, z) => x + z, 0) + " min";
+  let g = frame(mx);
+  days.forEach((d, i) => {
+    const cx = L + bw * (i + .5);
+    if (n <= 16 || i % 2 === 0) g += T2(cx, H - B + 12, i + 1, "middle", 8, "var(--mute)");
+    if (tot[i]) g += bar(cx - bw * .35, bw * .7, tot[i], mx, d + ": " + tot[i] + " min");
+  });
+  return g + T2((L + W - R) / 2, H - 3, "Date, " + MON[m - 1] + " " + y, "middle", 10, "var(--mute)");
+}
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function summaryTable(day){
+  const pre = sumMode === "m" ? day.slice(0, 7) : day.slice(0, 4), label = sumMode === "m" ? MON[+day.slice(5, 7) - 1] + " " + day.slice(0, 4) : day.slice(0, 4);
+  let rows = "", n = 0, total = 0;
+  for (const d of Object.keys(hist).filter(k => k.startsWith(pre)).sort()) {
+    const dn = DOW[new Date(d + "T00:00:00").getDay()];
+    for (const r of (hist[d] || []).slice().sort((a, b) => a[0] - b[0])) {
+      const m = r[1] - r[0]; n++; total += m;
+      rows += `<tr><td>${d}</td><td>${dn}</td><td>${hm(r[0])}</td><td>${hm(r[1])}</td><td class="num">${m}</td></tr>`;
+    }
+  }
+  $("rangeinfo").textContent = label + ": " + n + " runs, " + total + " min total";
+  if (!n) return `<div class="empty">No motor runs in ${label}</div>`;
+  return `<table><thead><tr><th>Date</th><th>Day</th><th>Motor ON</th><th>Motor OFF</th><th class="num">Minutes</th></tr></thead><tbody>${rows}<tr class="tot"><td colspan="4">Total (${n} runs)</td><td class="num">${total}</td></tr></tbody></table>`;
+}
+function render(){
+  const day = $("endday").value; if (!day) return;
+  const sm = range === 0;
+  $("chart").style.display = sm ? "none" : ""; $("chartnote").style.display = sm ? "none" : "";
+  $("tablebox").style.display = sm ? "" : "none"; $("sumseg").style.display = sm ? "flex" : "none";
+  if (sm) { $("tablebox").innerHTML = summaryTable(day); return; }
+  $("chart").innerHTML = range === 1 ? dayChart(day) : range === 7 ? weekChart(day) : monthChart(day);
+}
+
+/* ---------- tank + status ---------- */
+function drawFloats(pct){
+  let s = "";
+  for (const [name, p] of MARK) {
+    const y = 188 - p / 100 * 176;
+    s += `<circle cx="100" cy="${y}" r="5" fill="${pct >= p ? "var(--water)" : "none"}" stroke="var(--water)" stroke-width="2"/><text x="110" y="${y + 4}" font-size="12" fill="var(--mute)">${name}</text>`;
+  }
+  $("floats").innerHTML = s;
+}
+function show(d){
+  const lv = LV[String(d.l || d.level || "").toUpperCase()] || [0, "--", "bad"], h = lv[0] / 100 * 176;
+  $("water").setAttribute("y", 188 - h); $("water").setAttribute("height", h);
+  drawFloats(lv[0]);
+  $("level").textContent = lv[1]; $("level").className = "big " + lv[2];
+  const m = String(d.m || d.motor || "").toUpperCase();
+  $("motor").textContent = m || "--"; $("motor").className = "badge " + (m === "ON" ? "ok" : "");
+  if (d.d) {
+    if (demoMode === false) loadHist();
+    const last = typeof d.r === "string" ? ingest(d.d, d.r) : "";
+    $("lastrun").textContent = last || "No run reported";
+    $("reported").textContent = "Reported 20" + d.d;
+    const day = "20" + d.d;
+    if (!$("endday").value || day > $("endday").value) $("endday").value = day;
+  }
+  render();
+}
+function setStatus(t, on){ $("status").textContent = t; $("dot").className = "dot" + (on ? " on" : ""); }
+function load(){ try { return JSON.parse(localStorage.getItem("tank") || "{}"); } catch (e) { return {}; } }
+function save(o){ try { localStorage.setItem("tank", JSON.stringify(o)); } catch (e) {} }
+
+async function connect(){
+  const channel = $("channel").value.trim(), key = $("readkey").value.trim();
+  const seconds = Math.max(15, Math.min(300, Number($("poll").value) || 20));
+  if (!/^\d+$/.test(channel)) { setStatus("Enter a numeric Channel ID", false); $("settings").open = true; return; }
+  try { localStorage.setItem("tsconfig", JSON.stringify({channel, poll: seconds})); } catch(e) {}
+  // Do not store the Read API key in browser localStorage.
+  if (pollTimer) clearInterval(pollTimer);
+  setStatus("Connecting to ThingSpeak…", false);
+  const load = async () => {
+    try {
+      const auth = key ? "&api_key=" + encodeURIComponent(key) : "";
+      // Read the last entry separately: ThingSpeak may cache large feed responses.
+      const lastUrl = `https://api.thingspeak.com/channels/${encodeURIComponent(channel)}/feeds/last.json?${auth.replace(/^&/, "")}`;
+      const lastResponse = await fetch(lastUrl, {cache:"no-store"});
+      if (!lastResponse.ok) throw new Error("HTTP " + lastResponse.status + " reading latest entry");
+      const latest = await lastResponse.json();
+      if (!latest || latest.field1 == null && latest.field2 == null && latest.field3 == null && latest.field4 == null) throw new Error("No sensor data. Check channel ID, Read API Key, and ESP8266 upload.");
+      if (Date.now() - lastHistoryFetch > 300000 || !Object.keys(hist).length) {
+        const historyUrl = `https://api.thingspeak.com/channels/${encodeURIComponent(channel)}/feeds.json?results=8000${auth}`;
+        const historyResponse = await fetch(historyUrl, {cache:"no-store"});
+        if (historyResponse.ok) {
+          const historyData = await historyResponse.json();
+          if (Array.isArray(historyData.feeds)) buildHistoryFromFeeds(historyData.feeds);
+          lastHistoryFetch = Date.now();
+        }
+      }
+      demoMode = false;
+      const low = Number(latest.field1) === 1, mid = Number(latest.field2) === 1, high = Number(latest.field3) === 1;
+      let level = !low ? "EMPTY" : !mid ? "LOW" : !high ? "MEDIUM" : "FULL";
+      const motor = Number(latest.field4) === 1 ? "ON" : "OFF";
+      const t = new Date(latest.created_at);
+      const day = fmtDate(t);
+      $("endday").value = day;
+      show({l:level, m:motor});
+      $("reported").textContent = "ThingSpeak update: " + t.toLocaleString();
+      const runtime = Number(latest.field5);
+      if (motor === "ON" && Number.isFinite(runtime) && runtime >= 0) $("lastrun").textContent = "Current run: " + Math.floor(runtime/60) + " min " + (Math.floor(runtime)%60) + " sec";
+      else $("lastrun").textContent = getLastRunText();
+      setStatus("ThingSpeak updated", true);
+      render();
+    } catch (e) { setStatus("ThingSpeak error: " + e.message, false); }
+  };
+  await load();
+  pollTimer = setInterval(load, seconds * 1000);
+}
+function buildHistoryFromFeeds(feeds){
+  hist = {};
+  let wasOn = false, start = null;
+  for (const f of feeds) {
+    const state = Number(f.field4) === 1;
+    const time = new Date(f.created_at);
+    if (Number.isNaN(time.getTime())) continue;
+    if (state && !wasOn) start = time;
+    if (!state && wasOn && start) {
+      const a = start.getHours()*60 + start.getMinutes();
+      const b = time.getHours()*60 + time.getMinutes();
+      const d0 = fmtDate(start), d1 = fmtDate(time);
+      if (d0 === d1 && b > a) addRun(d0, a, b);
+      else if (d0 !== d1) { addRun(d0, a, 1440); addRun(d1, 0, b); }
+      start = null;
+    }
+    wasOn = state;
+  }
+  saveHist();
+}
+function getLastRunText(){
+  const dates = Object.keys(hist).sort().reverse();
+  for (const d of dates) { const runs = (hist[d] || []).slice().sort((a,b)=>b[0]-a[0]); if (runs.length) return d + " " + hm(runs[0][0]) + "–" + hm(runs[0][1]); }
+  return "No completed run in retrieved data";
+}
+function demo(){
+  demoMode = true; hist = {};
+  const today = fmtDate(new Date());
+  for (let k = 0; k < 35; k++) {
+    const day = addDays(today, -k), j = (k * 7) % 20;
+    addRun(day, 360 + j, 405 + j); addRun(day, 955 + j, 985 + j + (k % 3) * 10);
+  }
+  $("endday").value = today;
+  show({l: "MEDIUM", m: "OFF", d: today.slice(2), r: ""});
+  $("lastrun").textContent = "Demo data";
+}
+
+function wire(id, fn){
+  document.querySelectorAll("#" + id + " button").forEach(b => b.onclick = () => {
+    fn(b.dataset.r);
+    document.querySelectorAll("#" + id + " button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    render();
+  });
+}
+wire("rangeseg", v => range = +v); wire("sumseg", v => sumMode = v);
+$("endday").onchange = render;
+/* ---------- farm location and photo ---------- */
+function setPhoto(d){
+  const i = $("farmimg");
+  if (d) { i.src = d; i.style.display = ""; } else { i.removeAttribute("src"); i.style.display = "none"; }
+  $("rmphoto").style.display = d ? "" : "none";
+}
+function farmShow(){
+  const loc = $("loc").value.trim();
+  $("farmloc").textContent = loc || "Farm location not set";
+  $("farmloc").className = loc ? "locname" : "mute";
+  $("maplink").style.display = loc ? "" : "none";
+  $("maplink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(loc);
+}
+$("loc").oninput = () => { try { localStorage.setItem("tankloc", $("loc").value); } catch (e) {} farmShow(); };
+$("photo").onchange = ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  const img = new Image(), url = URL.createObjectURL(f);
+  img.onload = () => {
+    const k = Math.min(1, 900 / Math.max(img.width, img.height)), cv = document.createElement("canvas");
+    cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    const d = cv.toDataURL("image/jpeg", 0.8);
+    setPhoto(d);
+    try { localStorage.setItem("tankphoto", d); $("photonote").textContent = "Photo saved on this device."; }
+    catch (e) { $("photonote").textContent = "Photo shown, but too large to keep after closing."; }
+  };
+  img.onerror = () => { $("photonote").textContent = "That file could not be read as an image."; };
+  img.src = url;
+};
+$("rmphoto").onclick = () => { setPhoto(""); try { localStorage.removeItem("tankphoto"); } catch (e) {} $("photo").value = ""; $("photonote").textContent = ""; };
+$("editfarm").onclick = () => { $("settings").open = true; $("settings").scrollIntoView({behavior: "smooth"}); };
+try { $("loc").value = localStorage.getItem("tankloc") || ""; setPhoto(localStorage.getItem("tankphoto") || ""); } catch (e) { setPhoto(""); }
+farmShow();
+
+let ts = {}; try { ts = JSON.parse(localStorage.getItem("tsconfig") || "{}"); } catch(e) {}
+if (ts.channel) { $("channel").value = ts.channel; $("poll").value = ts.poll || 20; } else $("settings").open = true;
+loadHist();
+const days = Object.keys(hist).sort();
+$("endday").value = days.length ? days[days.length - 1] : fmtDate(new Date());
+drawFloats(0); render();
+$("go").onclick = connect; $("demo").onclick = demo;
+if (ts.channel) connect();
+</script>
+</body>
+</html>
