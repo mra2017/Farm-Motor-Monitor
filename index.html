@@ -105,8 +105,9 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
 const $ = id => document.getElementById(id);
 let feeds = [];
 let levelChart = null, motorChart = null, refreshTimer = null;
-const fmtDate = d => new Date(d).toLocaleString([], {year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-const fmtDay = d => new Date(d).toLocaleDateString([], {weekday:'long'});
+const IST_TIME_ZONE = 'Asia/Kolkata';
+const fmtDate = d => new Date(d).toLocaleString('en-IN', {timeZone:IST_TIME_ZONE, year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true});
+const fmtDay = d => new Date(d).toLocaleDateString('en-IN', {timeZone:IST_TIME_ZONE, weekday:'long'});
 const fmtDuration = sec => {
   if (!Number.isFinite(sec) || sec < 0) return '—';
   sec = Math.floor(sec);
@@ -246,7 +247,7 @@ function updateDashboard() {
 }
 function renderCharts() {
   const data=filteredFeeds();
-  const labels=data.map(f=>new Date(f.created_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  const labels=data.map(f=>new Date(f.created_at).toLocaleString('en-IN', {timeZone:IST_TIME_ZONE, month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}));
   const levelValues=data.map(f=>{const l=levelOf(f).name;return l==='LOW'?1:l==='MEDIUM'?2:l==='HIGH'?3:null;});
   if(levelChart) levelChart.destroy();
   levelChart=new Chart($('levelChart'),{
@@ -259,7 +260,7 @@ function renderCharts() {
   const dailyTotals = {};
   const completedRuns = getCompletedMotorRunsAll();
   for (const run of completedRuns) {
-    const key = run.start.toLocaleDateString([], {month:'short',day:'numeric'});
+    const key = run.start.toLocaleDateString('en-IN', {timeZone:IST_TIME_ZONE, year:'numeric',month:'short',day:'numeric'});
     dailyTotals[key] = (dailyTotals[key] || 0) + run.seconds;
   }
   const motorLabels = Object.keys(dailyTotals);
