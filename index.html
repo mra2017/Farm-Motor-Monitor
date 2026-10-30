@@ -52,7 +52,7 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
       <div class="status-row">
         <div class="status"><div class="label">Last run time</div><div class="value" id="lastRunTime" style="font-size:.95rem">—</div></div>
         <div class="status"><div class="label">Current-sensor status</div><div class="value" id="motorStatus"><i class="dot"></i>Unknown</div></div>
-        <div class="status"><div class="label">Run duration (latest record)</div><div class="value" id="runDuration">—</div></div>
+        <div class="status"><div class="label">Last completed run duration</div><div class="value" id="runDuration">—</div></div>
       </div>
       <p class="small muted">Motor ON/OFF is read from ThingSpeak Field 4, which your firmware derives from the CT current sensor.</p>
     </section>
@@ -222,11 +222,19 @@ function updateDashboard() {
   $('updatedAt').textContent='Last update: '+fmtDate(latest.created_at);
   const motor=numberField(latest,4);
   $('motorStatus').innerHTML = motor===null ? '<i class="dot"></i>Unknown' : `<i class="dot ${motor===1?'on':'off'}"></i>${motor===1?'ON':'OFF'}`;
-  const run=numberField(latest,5);
-  $('runDuration').textContent = motor===1 && run!==null ? fmtDuration(run) : (motor===0?'0m 0s':'—');
+  // Show the duration of the most recently completed run, not Field 5
+  // from the latest record (which is normally zero while the motor is OFF).
   const completedRuns = getCompletedMotorRunsAll();
-  $('lastRunTime').textContent = completedRuns.length
-    ? fmtDate(completedRuns[completedRuns.length - 1].end)
+  const lastCompletedRun = completedRuns.length
+    ? completedRuns[completedRuns.length - 1]
+    : null;
+
+  $('runDuration').textContent = lastCompletedRun
+    ? fmtDuration(lastCompletedRun.seconds)
+    : 'No completed run';
+
+  $('lastRunTime').textContent = lastCompletedRun
+    ? fmtDate(lastCompletedRun.end)
     : 'No completed run';
   renderCharts();
   renderLastRuns();
@@ -297,10 +305,4 @@ function connect() {
 $('connectBtn').addEventListener('click',connect);
 $('refreshBtn').addEventListener('click',loadData);
 $('period').addEventListener('change',renderCharts);
-$('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').value));}});
-$('channelId').value=localStorage.getItem('farmMonitorChannelId')||'';
-$('readKey').value=localStorage.getItem('farmMonitorReadKey')||'';
-if($('channelId').value) connect();
-</script>
-</body>
-</html>
+$('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').val
