@@ -273,31 +273,43 @@ function renderCharts() {
 }
 async function loadData() {
   const id=$('channelId').value.trim(), key=$('readKey').value.trim();
-  if(!id){showMessage('Enter your ThingSpeak Channel ID to connect.','error');return;}
-  const endpoint=`https://api.thingspeak.com/channels/${encodeURIComponent(id)}/feeds.json?results=8000${key?'&api_key='+encodeURIComponent(key):''}`;
-  $('connectionStatus').textContent='Loading…';
+  if(!/^\d+$/.test(id)) { $('connectionStatus').textContent='Not connected'; showMessage('Enter a numeric ThingSpeak Channel ID.','error'); return; }
+  const auth=key ? '&api_key='+encodeURIComponent(key) : '';
+  const endpoint=`https://api.thingspeak.com/channels/${encodeURIComponent(id)}/feeds.json?results=8000${auth}`;
+  $('connectionStatus').textContent='Connecting…';
+  showMessage('Contacting ThingSpeak…');
   try {
-    const response=await fetch(endpoint,{cache:'no-store'});
-    if(!response.ok) throw new Error(`HTTP ${response.status}. Check the Channel ID, Read API Key, and channel privacy.`);
-    const json=await response.json();
-    if(!Array.isArray(json.feeds)) throw new Error('ThingSpeak did not return a feeds list. Check the channel and Read API Key.');
+    const response=await fetch(endpoint,{method:'GET',cache:'no-store',headers:{'Accept':'application/json'}});
+    const raw=await response.text();
+    let json;
+    try { json=JSON.parse(raw); } catch (_) {
+      throw new Error(`ThingSpeak returned a non-JSON response (HTTP ${response.status}). Check internet access, channel ID, or browser/network blocking.`);
+    }
+    if(!response.ok) throw new Error(`HTTP ${response.status}: ${json.error || json.message || 'Request rejected by ThingSpeak.'}`);
+    if(json && (json.error || json.status==='error')) throw new Error(json.error || json.message || 'ThingSpeak rejected the request.');
+    if(!json || !Array.isArray(json.feeds)) throw new Error('No feeds list was returned. For a private channel, verify the Read API Key (not the Write API Key).');
     feeds=json.feeds.filter(f=>f.created_at).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
     if(!feeds.length) {
-      $('connectionStatus').textContent='Connected; no readings';
-      showMessage('Channel connected, but no readings are available yet. Check that the ESP8266 has uploaded data.','error');
+      $('connectionStatus').textContent='Connected · no records';
+      showMessage('The channel was reached, but it contains no readings. Check that the ESP8266 has uploaded data and that the selected channel is correct.','error');
       return;
     }
     $('connectionStatus').textContent=`Connected · ${feeds.length} records loaded`;
-    showMessage(`Connected successfully. Latest record: ${fmtDate(feeds[feeds.length-1].created_at)}. Auto-refresh is enabled.`,'ok');
+    showMessage(`Connected successfully. ${feeds.length} readings received. Latest record: ${fmtDate(feeds[feeds.length-1].created_at)}.` ,'ok');
     updateDashboard();
   } catch(err) {
     $('connectionStatus').textContent='Connection failed';
-    showMessage('ThingSpeak error: '+err.message,'error');
+    const msg=(err && err.message) ? err.message : String(err);
+    showMessage(msg.includes('Failed to fetch')
+      ? 'Could not reach ThingSpeak. Check internet access, browser extensions/firewall, and try opening https://api.thingspeak.com in another tab.'
+      : 'ThingSpeak connection error: '+msg,'error');
   }
 }
 function connect() {
-  localStorage.setItem('farmMonitorChannelId',$('channelId').value.trim());
-  localStorage.setItem('farmMonitorReadKey',$('readKey').value.trim());
+  const id=$('channelId').value.trim();
+  try { localStorage.setItem('farmMonitorChannelId',id); } catch (_) {}
+  // Never persist the private Read API Key in localStorage.
+  try { localStorage.removeItem('farmMonitorReadKey'); } catch (_) {}
   if(refreshTimer) clearInterval(refreshTimer);
   loadData();
   refreshTimer=setInterval(loadData,Number($('refresh').value));
@@ -305,4 +317,11 @@ function connect() {
 $('connectBtn').addEventListener('click',connect);
 $('refreshBtn').addEventListener('click',loadData);
 $('period').addEventListener('change',renderCharts);
-$('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').val
+$('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').value));}});
+$('channelId').value=localStorage.getItem('farmMonitorChannelId')||'';
+$('readKey').value='';
+try { localStorage.removeItem('farmMonitorReadKey'); } catch (_) {}
+if($('channelId').value) connect();
+</script>
+</body>
+</html>
