@@ -50,6 +50,7 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
     <section class="card span-4">
       <h2>Motor status</h2>
       <div class="status-row">
+        <div class="status"><div class="label">Last run time</div><div class="value" id="lastRunTime" style="font-size:.95rem">—</div></div>
         <div class="status"><div class="label">Current-sensor status</div><div class="value" id="motorStatus"><i class="dot"></i>Unknown</div></div>
         <div class="status"><div class="label">Run duration (latest record)</div><div class="value" id="runDuration">—</div></div>
       </div>
@@ -77,15 +78,16 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
       <div class="chartbox"><canvas id="motorChart"></canvas></div>
     </section>
     <section class="card span-12">
-      <h2>Last 5 completed motor runs</h2>
-      <p class="small muted">Start and stop timestamps are taken from ThingSpeak motor-state changes. Durations are calculated from those timestamps.</p>
+      <h2>Last 30 completed motor runs</h2>
+      <p class="small muted">Start and stop timestamps are taken from ThingSpeak motor-state changes. If the last recorded state is ON and no OFF record exists (for example, after a power cut), stop time is shown as NOT AVAILABLE.</p>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:.88rem">
           <thead><tr style="text-align:left;border-bottom:1px solid var(--line)">
-            <th style="padding:9px">Run</th><th style="padding:9px">Start date &amp; time</th>
+            <th style="padding:9px">Run</th><th style="padding:9px">Day</th>
+            <th style="padding:9px">Start date &amp; time</th>
             <th style="padding:9px">Stop date &amp; time</th><th style="padding:9px">Duration</th>
           </tr></thead>
-          <tbody id="lastRunsRows"><tr><td colspan="4" class="muted" style="padding:12px">Waiting for motor history…</td></tr></tbody>
+          <tbody id="lastRunsRows"><tr><td colspan="5" class="muted" style="padding:12px">Waiting for motor history…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -104,6 +106,7 @@ const $ = id => document.getElementById(id);
 let feeds = [];
 let levelChart = null, motorChart = null, refreshTimer = null;
 const fmtDate = d => new Date(d).toLocaleString([], {year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+const fmtDay = d => new Date(d).toLocaleDateString([], {weekday:'long'});
 const fmtDuration = sec => {
   if (!Number.isFinite(sec) || sec < 0) return '—';
   sec = Math.floor(sec);
@@ -150,7 +153,7 @@ function showMessage(text, type='') {
   $('message').textContent=text;
   $('message').className='notice'+(type?' '+type:'');
 }
-function getCompletedMotorRuns() {
+function getMotorRunsAll() {
   const runs = [];
   let start = null;
 
@@ -163,11 +166,26 @@ function getCompletedMotorRuns() {
       start = stamp;
     } else if (motor === 0 && start !== null) {
       const seconds = Math.max(0, Math.round((stamp.getTime() - start.getTime()) / 1000));
-      runs.push({start: new Date(start), end: stamp, seconds});
+      runs.push({start: new Date(start), end: stamp, seconds, completed: true});
       start = null;
     }
   }
-  return runs.slice(-5).reverse();
+
+  // If the data ends with motor ON and no later OFF record, preserve the run
+  // but do not invent a stop time. This can happen after a power/network cut.
+  if (start !== null) {
+    runs.push({start: new Date(start), end: null, seconds: null, completed: false});
+  }
+
+  return runs;
+}
+
+function getCompletedMotorRunsAll() {
+  return getMotorRunsAll().filter(run => run.completed);
+}
+
+function getCompletedMotorRuns() {
+  return getMotorRunsAll().slice(-30).reverse();
 }
 
 function renderLastRuns() {
@@ -175,16 +193,17 @@ function renderLastRuns() {
   const body = $('lastRunsRows');
 
   if (!runs.length) {
-    body.innerHTML = '<tr><td colspan="4" class="muted" style="padding:12px">No completed motor runs found yet. A run appears after the motor turns ON and then OFF.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="muted" style="padding:12px">No completed motor runs found yet. A run appears after the motor turns ON and then OFF.</td></tr>';
     return;
   }
 
   body.innerHTML = runs.map((run, i) => `
     <tr style="border-bottom:1px solid var(--line)">
       <td style="padding:9px">${i + 1}</td>
+      <td style="padding:9px">${fmtDay(run.start)}</td>
       <td style="padding:9px;white-space:nowrap">${fmtDate(run.start)}</td>
-      <td style="padding:9px;white-space:nowrap">${fmtDate(run.end)}</td>
-      <td style="padding:9px;font-weight:700">${fmtDuration(run.seconds)}</td>
+      <td style="padding:9px;white-space:nowrap">${run.completed ? fmtDate(run.end) : '<span style="color:#b45309;font-weight:700">NOT AVAILABLE</span>'}</td>
+      <td style="padding:9px;font-weight:700">${run.completed ? fmtDuration(run.seconds) : 'Incomplete run'}</td>
     </tr>`).join('');
 }
 
@@ -205,6 +224,10 @@ function updateDashboard() {
   $('motorStatus').innerHTML = motor===null ? '<i class="dot"></i>Unknown' : `<i class="dot ${motor===1?'on':'off'}"></i>${motor===1?'ON':'OFF'}`;
   const run=numberField(latest,5);
   $('runDuration').textContent = motor===1 && run!==null ? fmtDuration(run) : (motor===0?'0m 0s':'—');
+  const completedRuns = getCompletedMotorRunsAll();
+  $('lastRunTime').textContent = completedRuns.length
+    ? fmtDate(completedRuns[completedRuns.length - 1].end)
+    : 'No completed run';
   renderCharts();
   renderLastRuns();
   const rows=feeds.slice(-8).reverse().map(f=>{
@@ -223,20 +246,16 @@ function renderCharts() {
     data:{labels,datasets:[{label:'Tank level (1=Low, 2=Medium, 3=High)',data:levelValues,stepped:true,tension:0,spanGaps:false,borderWidth:2,pointRadius:2}]},
     options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0.5,max:3.5,ticks:{stepSize:1,callback:v=>({1:'LOW',2:'MED',3:'HIGH'}[v]||'')}}},plugins:{legend:{display:false}}}
   });
-  // Estimate daily ON-time by summing intervals between consecutive readings where motor is ON.
-  const buckets={};
-  for(let i=1;i<data.length;i++){
-    const prev=data[i-1], cur=data[i];
-    if(numberField(prev,4)===1 && numberField(cur,4)===1){
-      const start=new Date(prev.created_at), end=new Date(cur.created_at);
-      let seconds=Math.max(0,(end-start)/1000);
-      // Avoid attributing a long data gap to continuous motor operation.
-      seconds=Math.min(seconds, 120);
-      const key=start.toLocaleDateString([], {month:'short',day:'numeric'});
-      buckets[key]=(buckets[key]||0)+seconds;
-    }
+  // Use the same OFF->ON and ON->OFF transition pairing as the
+  // "Last 5 completed motor runs" table, so both displays agree.
+  const dailyTotals = {};
+  const completedRuns = getCompletedMotorRunsAll();
+  for (const run of completedRuns) {
+    const key = run.start.toLocaleDateString([], {month:'short',day:'numeric'});
+    dailyTotals[key] = (dailyTotals[key] || 0) + run.seconds;
   }
-  const motorLabels=Object.keys(buckets), motorMinutes=motorLabels.map(k=>Math.round(buckets[k]/60*10)/10);
+  const motorLabels = Object.keys(dailyTotals);
+  const motorMinutes = motorLabels.map(k => Math.round(dailyTotals[k] / 60 * 100) / 100);
   if(motorChart) motorChart.destroy();
   motorChart=new Chart($('motorChart'),{
     type:'bar',
