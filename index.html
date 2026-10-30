@@ -77,6 +77,19 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
       <div class="chartbox"><canvas id="motorChart"></canvas></div>
     </section>
     <section class="card span-12">
+      <h2>Last 5 completed motor runs</h2>
+      <p class="small muted">Start and stop timestamps are taken from ThingSpeak motor-state changes. Durations are calculated from those timestamps.</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.88rem">
+          <thead><tr style="text-align:left;border-bottom:1px solid var(--line)">
+            <th style="padding:9px">Run</th><th style="padding:9px">Start date &amp; time</th>
+            <th style="padding:9px">Stop date &amp; time</th><th style="padding:9px">Duration</th>
+          </tr></thead>
+          <tbody id="lastRunsRows"><tr><td colspan="4" class="muted" style="padding:12px">Waiting for motor history…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card span-12">
       <h2>Recent ThingSpeak readings</h2>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.88rem">
         <thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:9px">Timestamp</th><th style="padding:9px">Level</th><th style="padding:9px">Motor</th><th style="padding:9px">Run duration</th></tr></thead>
@@ -137,6 +150,44 @@ function showMessage(text, type='') {
   $('message').textContent=text;
   $('message').className='notice'+(type?' '+type:'');
 }
+function getCompletedMotorRuns() {
+  const runs = [];
+  let start = null;
+
+  for (const feed of feeds) {
+    const motor = numberField(feed, 4);
+    const stamp = new Date(feed.created_at);
+    if (!Number.isFinite(stamp.getTime()) || motor === null) continue;
+
+    if (motor === 1 && start === null) {
+      start = stamp;
+    } else if (motor === 0 && start !== null) {
+      const seconds = Math.max(0, Math.round((stamp.getTime() - start.getTime()) / 1000));
+      runs.push({start: new Date(start), end: stamp, seconds});
+      start = null;
+    }
+  }
+  return runs.slice(-5).reverse();
+}
+
+function renderLastRuns() {
+  const runs = getCompletedMotorRuns();
+  const body = $('lastRunsRows');
+
+  if (!runs.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted" style="padding:12px">No completed motor runs found yet. A run appears after the motor turns ON and then OFF.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = runs.map((run, i) => `
+    <tr style="border-bottom:1px solid var(--line)">
+      <td style="padding:9px">${i + 1}</td>
+      <td style="padding:9px;white-space:nowrap">${fmtDate(run.start)}</td>
+      <td style="padding:9px;white-space:nowrap">${fmtDate(run.end)}</td>
+      <td style="padding:9px;font-weight:700">${fmtDuration(run.seconds)}</td>
+    </tr>`).join('');
+}
+
 function updateDashboard() {
   if (!feeds.length) return;
   const latest=feeds[feeds.length-1], level=levelOf(latest);
@@ -155,6 +206,7 @@ function updateDashboard() {
   const run=numberField(latest,5);
   $('runDuration').textContent = motor===1 && run!==null ? fmtDuration(run) : (motor===0?'0m 0s':'—');
   renderCharts();
+  renderLastRuns();
   const rows=feeds.slice(-8).reverse().map(f=>{
     const l=levelOf(f).name, m=numberField(f,4), r=numberField(f,5);
     return `<tr style="border-bottom:1px solid var(--line)"><td style="padding:9px;white-space:nowrap">${fmtDate(f.created_at)}</td><td style="padding:9px">${l}</td><td style="padding:9px">${m===null?'—':m===1?'ON':'OFF'}</td><td style="padding:9px">${r===null?'—':fmtDuration(r)}</td></tr>`;
