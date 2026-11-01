@@ -133,7 +133,14 @@ function getMotorRunsAll() {
     if (motor === 1 && start === null) {
       start = stamp;
     } else if (motor === 0 && start !== null) {
-      const seconds = Math.max(0, Math.round((stamp.getTime() - start.getTime()) / 1000));
+      // New firmware writes the measured completed run duration to Field 5
+      // on the OFF transition. Older entries have Field 5 = 0, so retain
+      // timestamp-difference fallback for historical runs.
+      const field5Seconds = numberField(feed, 5);
+      const timestampSeconds = Math.max(0, Math.round((stamp.getTime() - start.getTime()) / 1000));
+      const seconds = (field5Seconds !== null && field5Seconds > 0)
+        ? Math.round(field5Seconds)
+        : timestampSeconds;
       runs.push({start: new Date(start), end: stamp, seconds, completed: true});
       start = null;
     }
