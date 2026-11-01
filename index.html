@@ -57,7 +57,7 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
     <section class="card span-12">
       <h2>Motor ON time</h2>
       <div class="controls">
-        <span class="small muted">Daily total motor running time calculated from completed ON/OFF transitions.</span>
+        <span class="small muted">Daily total motor running time uses the latest positive Field 5 reading from each completed ON run.</span>
         <label class="small muted" for="period">Chart period
           <select id="period" style="margin-left:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
             <option value="day">Last 24 hours</option>
@@ -124,32 +124,48 @@ function showMessage(text, type='') {
 function getMotorRunsAll() {
   const runs = [];
   let start = null;
+  let latestField5DuringRun = null;
 
   for (const feed of feeds) {
     const motor = numberField(feed, 4);
     const stamp = new Date(feed.created_at);
     if (!Number.isFinite(stamp.getTime()) || motor === null) continue;
 
-    if (motor === 1 && start === null) {
-      start = stamp;
+    const field5Seconds = numberField(feed, 5);
+
+    if (motor === 1) {
+      if (start === null) {
+        start = stamp;
+        latestField5DuringRun = null;
+      }
+      // In this channel Field 5 reports elapsed run time while the motor is
+      // ON, then returns to zero when OFF. Keep the latest positive ON value.
+      if (field5Seconds !== null && field5Seconds > 0) {
+        latestField5DuringRun = Math.round(field5Seconds);
+      }
     } else if (motor === 0 && start !== null) {
-      // New firmware writes the measured completed run duration to Field 5
-      // on the OFF transition. Older entries have Field 5 = 0, so retain
-      // timestamp-difference fallback for historical runs.
-      const field5Seconds = numberField(feed, 5);
       const timestampSeconds = Math.max(0, Math.round((stamp.getTime() - start.getTime()) / 1000));
-      const seconds = (field5Seconds !== null && field5Seconds > 0)
-        ? Math.round(field5Seconds)
+      // Prefer the actual Field 5 reading recorded during this run.
+      // Timestamp difference is only a fallback for older runs with no
+      // positive Field 5 sample.
+      const seconds = latestField5DuringRun !== null
+        ? latestField5DuringRun
         : timestampSeconds;
-      runs.push({start: new Date(start), end: stamp, seconds, completed: true});
+      runs.push({
+        start: new Date(start),
+        end: stamp,
+        seconds,
+        durationSource: latestField5DuringRun !== null ? 'field5' : 'timestamp',
+        completed: true
+      });
       start = null;
+      latestField5DuringRun = null;
     }
   }
 
-  // If the data ends with motor ON and no later OFF record, preserve the run
-  // but do not invent a stop time. This can happen after a power/network cut.
+  // An ON run without a following OFF transition is not a completed run.
   if (start !== null) {
-    runs.push({start: new Date(start), end: null, seconds: null, completed: false});
+    runs.push({start: new Date(start), end: null, seconds: latestField5DuringRun, completed: false});
   }
 
   return runs;
@@ -238,7 +254,7 @@ function renderCharts() {
   if(motorChart) motorChart.destroy();
   motorChart=new Chart($('motorChart'),{
     type:'bar',
-    data:{labels:motorLabels,datasets:[{label:'Estimated motor ON time (minutes)',data:motorMinutes,borderWidth:1}]},
+    data:{labels:motorLabels,datasets:[{label:'Motor ON time from ThingSpeak Field 5 (minutes)',data:motorMinutes,borderWidth:1}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:'Minutes'}}}}
   });
 }
