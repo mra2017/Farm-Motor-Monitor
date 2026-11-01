@@ -41,7 +41,7 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
         <div class="status"><div class="label">Last run time</div><div class="value" id="lastRunTime" style="font-size:.95rem">—</div></div>
         <div class="status"><div class="label">Last completed run duration</div><div class="value" id="runDuration">—</div></div>
       </div>
-      <p class="small muted">Motor ON/OFF is read from ThingSpeak Field 4, derived from the CT current sensor. Field 5 contains the current run duration in seconds while the motor is ON.</p>
+      <p class="small muted">Motor ON/OFF is read from ThingSpeak Field 4, derived from the CT current sensor. Field 5 contains motor run duration in seconds while ON. Field 6 contains the latest CT peak-to-peak ADC reading.</p>
     </section>
     <section class="card span-12">
       <h2>ThingSpeak connection</h2>
@@ -52,11 +52,21 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
       </div>
       <div class="controls" style="margin-top:12px"><button id="connectBtn">Connect / Save</button><button id="refreshBtn" class="secondary">Refresh now</button><span id="connectionStatus" class="small muted">Not connected</span></div>
       <div id="message" class="notice">Enter your Channel ID. For a private channel, enter its Read API Key. The Write API Key is not needed on this webpage.</div>
-      <p class="small muted">Channel fields used: Field 4 Motor ON/OFF, Field 5 Motor run duration in seconds. Float-switch Fields 1–3 are ignored.</p>
+      <p class="small muted">Channel fields used: Field 4 Motor ON/OFF, Field 5 Motor run duration in seconds, Field 6 CT peak-to-peak ADC reading. Float-switch Fields 1–3 are ignored.</p>
     </section>
     <section class="card span-12">
       <h2>Motor ON time</h2>
-      <div class="controls"><span class="small muted">Daily total motor running time calculated from completed ON/OFF transitions.</span></div>
+      <div class="controls">
+        <span class="small muted">Daily total motor running time calculated from completed ON/OFF transitions.</span>
+        <label class="small muted" for="period">Chart period
+          <select id="period" style="margin-left:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+            <option value="day">Last 24 hours</option>
+            <option value="week">Last 7 days</option>
+            <option value="month">Last 30 days</option>
+            <option value="all" selected>All available history</option>
+          </select>
+        </label>
+      </div>
       <div class="chartbox"><canvas id="motorChart"></canvas></div>
     </section>
     <section class="card span-12">
@@ -76,8 +86,8 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
     <section class="card span-12">
       <h2>Recent ThingSpeak readings</h2>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.88rem">
-        <thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:9px">Timestamp</th><th style="padding:9px">Motor status</th><th style="padding:9px">Run duration</th></tr></thead>
-        <tbody id="recentRows"><tr><td colspan="3" class="muted" style="padding:12px">No motor readings loaded yet.</td></tr></tbody>
+        <thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:9px">Timestamp</th><th style="padding:9px">Motor status</th><th style="padding:9px">Run duration</th><th style="padding:9px">CT P-P (ADC)</th></tr></thead>
+        <tbody id="recentRows"><tr><td colspan="4" class="muted" style="padding:12px">No motor readings loaded yet.</td></tr></tbody>
       </table></div>
     </section>
   </div>
@@ -200,11 +210,11 @@ function updateDashboard() {
   renderLastRuns();
 
   const rows = feeds.slice(-8).reverse().map(f => {
-    const m = numberField(f, 4), r = numberField(f, 5);
+    const m = numberField(f, 4), r = numberField(f, 5), pp = numberField(f, 6);
     const motorText = m === null ? '—' : (m === 1 ? 'ON' : 'OFF');
-    return `<tr style="border-bottom:1px solid var(--line)"><td style="padding:9px;white-space:nowrap">${fmtDate(f.created_at)}</td><td style="padding:9px">${motorText}</td><td style="padding:9px">${r === null ? '—' : fmtDuration(r)}</td></tr>`;
+    return `<tr style="border-bottom:1px solid var(--line)"><td style="padding:9px;white-space:nowrap">${fmtDate(f.created_at)}</td><td style="padding:9px">${motorText}</td><td style="padding:9px">${r === null ? '—' : fmtDuration(r)}</td><td style="padding:9px">${pp === null ? '—' : pp}</td></tr>`;
   }).join('');
-  $('recentRows').innerHTML = rows || '<tr><td colspan="3" style="padding:12px">No motor readings.</td></tr>';
+  $('recentRows').innerHTML = rows || '<tr><td colspan="4" style="padding:12px">No motor readings.</td></tr>';
 }
 function renderCharts() {
   const data=filteredFeeds();
@@ -270,6 +280,7 @@ function connect() {
 }
 $('connectBtn').addEventListener('click',connect);
 $('refreshBtn').addEventListener('click',loadData);
+$('period').addEventListener('change',renderCharts);
 $('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').value));}});
 liveTimer = setInterval(() => {
   if (liveRunStart) $('currentRunDuration').textContent = fmtDuration((Date.now() - liveRunStart.getTime()) / 1000);
