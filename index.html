@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f766e">
-<title>Farm Tank & Motor Monitor</title>
+<title>Farm Motor Monitor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root{--bg:#f3f6f8;--card:#fff;--ink:#17212b;--muted:#64748b;--line:#e2e8f0;--teal:#0f766e;--blue:#2563eb;--green:#15803d;--red:#b91c1c;--amber:#b45309}
@@ -28,33 +28,20 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
 </head>
 <body>
 <header><div class="wrap headrow">
-  <div><h1>Farm Tank & Motor Monitor</h1><div class="subtitle">Live water level · Motor current status · Historical trends</div></div>
-  <div class="current-pill"><small>CURRENT WATER LEVEL</small><strong id="currentLevel">Waiting for data</strong><small id="updatedAt">Last update: —</small></div>
+  <div><h1>Farm Motor Monitor</h1><div class="subtitle">Live CT-based motor status · Running time · Motor history</div></div>
+  <div class="current-pill"><small>CURRENT MOTOR STATUS</small><strong id="headerMotorStatus">Waiting for data</strong><small id="updatedAt">Last update: —</small></div>
 </div></header>
 <main class="wrap">
   <div class="grid">
-    <section class="card span-8">
-      <h2>Tank level</h2>
-      <div class="tank-wrap">
-        <div class="tank" aria-label="Tank illustration">
-          <div id="water" class="water" style="height:10%"></div>
-          <div class="tank-label high">HIGH</div><div class="tank-label mid">MEDIUM</div><div class="tank-label low">LOW</div>
-        </div>
-        <div class="tank-side">
-          <div id="levelName" class="level-name">Waiting for data</div>
-          <div id="levelDescription" class="muted">Connect your ThingSpeak channel to load readings.</div>
-          <div class="legend"><span>Water level estimated from float switches</span></div>
-        </div>
-      </div>
-    </section>
-    <section class="card span-4">
+    <section class="card span-12">
       <h2>Motor status</h2>
       <div class="status-row">
-        <div class="status"><div class="label">Last run time</div><div class="value" id="lastRunTime" style="font-size:.95rem">—</div></div>
         <div class="status"><div class="label">Current-sensor status</div><div class="value" id="motorStatus"><i class="dot"></i>Unknown</div></div>
+        <div class="status"><div class="label">Current run duration</div><div class="value" id="currentRunDuration">—</div></div>
+        <div class="status"><div class="label">Last run time</div><div class="value" id="lastRunTime" style="font-size:.95rem">—</div></div>
         <div class="status"><div class="label">Last completed run duration</div><div class="value" id="runDuration">—</div></div>
       </div>
-      <p class="small muted">Motor ON/OFF is read from ThingSpeak Field 4, which your firmware derives from the CT current sensor.</p>
+      <p class="small muted">Motor ON/OFF is read from ThingSpeak Field 4, derived from the CT current sensor. Field 5 contains the current run duration in seconds while the motor is ON.</p>
     </section>
     <section class="card span-12">
       <h2>ThingSpeak connection</h2>
@@ -65,21 +52,16 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
       </div>
       <div class="controls" style="margin-top:12px"><button id="connectBtn">Connect / Save</button><button id="refreshBtn" class="secondary">Refresh now</button><span id="connectionStatus" class="small muted">Not connected</span></div>
       <div id="message" class="notice">Enter your Channel ID. For a private channel, enter its Read API Key. The Write API Key is not needed on this webpage.</div>
-      <p class="small muted">Channel fields expected: Field 1 Low, Field 2 Medium, Field 3 High, Field 4 Motor ON/OFF, Field 5 Motor run seconds.</p>
+      <p class="small muted">Channel fields used: Field 4 Motor ON/OFF, Field 5 Motor run duration in seconds. Float-switch Fields 1–3 are ignored.</p>
     </section>
-    <section class="card span-6">
-      <h2>Water-level history</h2>
-      <div class="controls"><label for="period">Period:</label><select id="period"><option value="day">Daily</option><option value="week" selected>Weekly</option><option value="month">Monthly</option><option value="all">All loaded records</option></select></div>
-      <div class="chartbox"><canvas id="levelChart"></canvas></div>
-    </section>
-    <section class="card span-6">
+    <section class="card span-12">
       <h2>Motor ON time</h2>
-      <div class="controls"><span class="small muted">Uses recorded motor-state transitions; duration is approximate if records are missing.</span></div>
+      <div class="controls"><span class="small muted">Daily total motor running time calculated from completed ON/OFF transitions.</span></div>
       <div class="chartbox"><canvas id="motorChart"></canvas></div>
     </section>
     <section class="card span-12">
       <h2>Last 30 completed motor runs</h2>
-      <p class="small muted">Start and stop timestamps are taken from ThingSpeak motor-state changes. If the last recorded state is ON and no OFF record exists (for example, after a power cut), stop time is shown as NOT AVAILABLE.</p>
+      <p class="small muted">Shows the latest 30 completed motor runs reconstructed from ThingSpeak Field 4 ON/OFF transitions. An incomplete or interrupted run is excluded until a confirmed OFF transition is received.</p>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:.88rem">
           <thead><tr style="text-align:left;border-bottom:1px solid var(--line)">
@@ -94,17 +76,17 @@ main{padding:20px 0 36px}.grid{display:grid;grid-template-columns:repeat(12,minm
     <section class="card span-12">
       <h2>Recent ThingSpeak readings</h2>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.88rem">
-        <thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:9px">Timestamp</th><th style="padding:9px">Level</th><th style="padding:9px">Motor</th><th style="padding:9px">Run duration</th></tr></thead>
-        <tbody id="recentRows"><tr><td colspan="4" class="muted" style="padding:12px">No readings loaded yet.</td></tr></tbody>
+        <thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:9px">Timestamp</th><th style="padding:9px">Motor status</th><th style="padding:9px">Run duration</th></tr></thead>
+        <tbody id="recentRows"><tr><td colspan="3" class="muted" style="padding:12px">No motor readings loaded yet.</td></tr></tbody>
       </table></div>
     </section>
   </div>
-  <div class="footer">Farm Tank & Motor Monitor · Data supplied by your ThingSpeak channel</div>
+  <div class="footer">Farm Motor Monitor · Data supplied by your ThingSpeak channel</div>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 let feeds = [];
-let levelChart = null, motorChart = null, refreshTimer = null;
+let motorChart = null, refreshTimer = null, liveRunStart = null, liveTimer = null;
 const IST_TIME_ZONE = 'Asia/Kolkata';
 const fmtDate = d => new Date(d).toLocaleString('en-IN', {timeZone:IST_TIME_ZONE, year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true});
 const fmtDay = d => new Date(d).toLocaleDateString('en-IN', {timeZone:IST_TIME_ZONE, weekday:'long'});
@@ -117,31 +99,6 @@ const fmtDuration = sec => {
 function numberField(feed, n) {
   const v = Number(feed['field'+n]);
   return feed['field'+n] !== null && feed['field'+n] !== '' && Number.isFinite(v) ? v : null;
-}
-function levelOf(feed) {
-  const low = numberField(feed, 1);
-  const mid = numberField(feed, 2);
-  const high = numberField(feed, 3);
-
-  // Missing level fields: we cannot determine the tank state.
-  if (low === null && mid === null && high === null) {
-    return {name: 'UNKNOWN', pct: 10, error: false};
-  }
-
-  // A high switch grounded while the low switch is open is contradictory.
-  // Field 1 = LOW reached; Field 3 = HIGH reached.
-  if (low === 1 && high === 1) {
-    return {name: 'LEVEL SENSOR ERROR', pct: 10, error: true};
-  }
-
-  // Expected normal combinations:
-  // LOW = 1,0,0 | MEDIUM = 0,1,0 | HIGH = 0,0,1
-  if (high === 1) return {name: 'HIGH', pct: 92, error: false};
-  if (mid === 1) return {name: 'MEDIUM', pct: 55, error: false};
-  if (low === 1) return {name: 'LOW', pct: 18, error: false};
-
-  // All level fields are present but zero.
-  return {name: 'UNKNOWN', pct: 10, error: false};
 }
 function filteredFeeds() {
   const period=$('period').value;
@@ -186,7 +143,7 @@ function getCompletedMotorRunsAll() {
 }
 
 function getCompletedMotorRuns() {
-  return getMotorRunsAll().slice(-30).reverse();
+  return getCompletedMotorRunsAll().slice(-30).reverse();
 }
 
 function renderLastRuns() {
@@ -210,51 +167,47 @@ function renderLastRuns() {
 
 function updateDashboard() {
   if (!feeds.length) return;
-  const latest=feeds[feeds.length-1], level=levelOf(latest);
-  $('currentLevel').textContent=level.name;
-  $('levelName').textContent=level.name;
-  $('levelName').style.color = level.error ? '#b91c1c' : (level.name==='UNKNOWN' ? '#b45309' : 'var(--teal)');
-  $('levelDescription').textContent = level.error
-    ? 'Contradictory switch states: LOW and HIGH both reported reached. Check D6, D7, wiring, and firmware.'
-    : (level.name==='UNKNOWN'
-       ? 'Latest ThingSpeak record has no level field set to 1. Check the ESP8266 field values.'
-       : 'Water level based on the latest float-switch record.');
-  $('water').style.height=level.pct+'%';
-  $('updatedAt').textContent='Last update: '+fmtDate(latest.created_at);
-  const motor=numberField(latest,4);
-  $('motorStatus').innerHTML = motor===null ? '<i class="dot"></i>Unknown' : `<i class="dot ${motor===1?'on':'off'}"></i>${motor===1?'ON':'OFF'}`;
-  // Show the duration of the most recently completed run, not Field 5
-  // from the latest record (which is normally zero while the motor is OFF).
+  const latest = feeds[feeds.length - 1];
+  const motor = numberField(latest, 4);
+  const isOn = motor === 1;
+
+  $('motorStatus').innerHTML = motor === null
+    ? '<i class="dot"></i>Unknown'
+    : `<i class="dot ${isOn ? 'on' : 'off'}"></i>${isOn ? 'ON' : 'OFF'}`;
+  $('headerMotorStatus').textContent = motor === null ? 'Unknown' : (isOn ? 'ON' : 'OFF');
+  $('headerMotorStatus').style.color = isOn ? '#15803d' : (motor === 0 ? '#b91c1c' : '#134e4a');
+  $('updatedAt').textContent = 'Last update: ' + fmtDate(latest.created_at);
+
+  const allRuns = getMotorRunsAll();
   const completedRuns = getCompletedMotorRunsAll();
-  const lastCompletedRun = completedRuns.length
-    ? completedRuns[completedRuns.length - 1]
-    : null;
+  const lastCompletedRun = completedRuns.length ? completedRuns[completedRuns.length - 1] : null;
+  const activeRun = allRuns.length && !allRuns[allRuns.length - 1].completed
+    ? allRuns[allRuns.length - 1] : null;
+
+  liveRunStart = (isOn && activeRun) ? activeRun.start : null;
+  $('currentRunDuration').textContent = (isOn && liveRunStart)
+    ? fmtDuration((Date.now() - liveRunStart.getTime()) / 1000)
+    : (isOn ? 'Waiting for start time' : '00m 00s');
 
   $('runDuration').textContent = lastCompletedRun
     ? fmtDuration(lastCompletedRun.seconds)
     : 'No completed run';
-
   $('lastRunTime').textContent = lastCompletedRun
     ? fmtDate(lastCompletedRun.end)
     : 'No completed run';
+
   renderCharts();
   renderLastRuns();
-  const rows=feeds.slice(-8).reverse().map(f=>{
-    const l=levelOf(f).name, m=numberField(f,4), r=numberField(f,5);
-    return `<tr style="border-bottom:1px solid var(--line)"><td style="padding:9px;white-space:nowrap">${fmtDate(f.created_at)}</td><td style="padding:9px">${l}</td><td style="padding:9px">${m===null?'—':m===1?'ON':'OFF'}</td><td style="padding:9px">${r===null?'—':fmtDuration(r)}</td></tr>`;
+
+  const rows = feeds.slice(-8).reverse().map(f => {
+    const m = numberField(f, 4), r = numberField(f, 5);
+    const motorText = m === null ? '—' : (m === 1 ? 'ON' : 'OFF');
+    return `<tr style="border-bottom:1px solid var(--line)"><td style="padding:9px;white-space:nowrap">${fmtDate(f.created_at)}</td><td style="padding:9px">${motorText}</td><td style="padding:9px">${r === null ? '—' : fmtDuration(r)}</td></tr>`;
   }).join('');
-  $('recentRows').innerHTML=rows || '<tr><td colspan="4" style="padding:12px">No readings.</td></tr>';
+  $('recentRows').innerHTML = rows || '<tr><td colspan="3" style="padding:12px">No motor readings.</td></tr>';
 }
 function renderCharts() {
   const data=filteredFeeds();
-  const labels=data.map(f=>new Date(f.created_at).toLocaleString('en-IN', {timeZone:IST_TIME_ZONE, month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}));
-  const levelValues=data.map(f=>{const l=levelOf(f).name;return l==='LOW'?1:l==='MEDIUM'?2:l==='HIGH'?3:null;});
-  if(levelChart) levelChart.destroy();
-  levelChart=new Chart($('levelChart'),{
-    type:'line',
-    data:{labels,datasets:[{label:'Tank level (1=Low, 2=Medium, 3=High)',data:levelValues,stepped:true,tension:0,spanGaps:false,borderWidth:2,pointRadius:2}]},
-    options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0.5,max:3.5,ticks:{stepSize:1,callback:v=>({1:'LOW',2:'MED',3:'HIGH'}[v]||'')}}},plugins:{legend:{display:false}}}
-  });
   // Use the same OFF->ON and ON->OFF transition pairing as the
   // "Last 5 completed motor runs" table, so both displays agree.
   const dailyTotals = {};
@@ -317,8 +270,10 @@ function connect() {
 }
 $('connectBtn').addEventListener('click',connect);
 $('refreshBtn').addEventListener('click',loadData);
-$('period').addEventListener('change',renderCharts);
 $('refresh').addEventListener('change',()=>{if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(loadData,Number($('refresh').value));}});
+liveTimer = setInterval(() => {
+  if (liveRunStart) $('currentRunDuration').textContent = fmtDuration((Date.now() - liveRunStart.getTime()) / 1000);
+}, 1000);
 $('channelId').value=localStorage.getItem('farmMonitorChannelId')||'';
 $('readKey').value='';
 try { localStorage.removeItem('farmMonitorReadKey'); } catch (_) {}
